@@ -79,12 +79,12 @@ Section "Portable requirements" SecCore
 	File /r "..\Boards\*.*"
 
 	SetOutPath "$INSTDIR"
-	File "3rd party Licenses.txt"
 	File "..\Assembler\*.e80asm"
 	File "..\LICENSE"
-	File "SciTEGlobal.properties"
-	File "e80asm.lua"
-	File "e80icon.ico"
+	File "*.txt"
+	File "*.properties"
+	File "*.lua"
+	File "*.ico"
 	File /r "ExtrasIgnore\*.*"
 
 	; Store Install Path

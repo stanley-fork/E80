@@ -84,10 +84,9 @@ BEGIN
 		-- either control the matrix (eg. intensity) or the LEDs in one row.
 		SUBTYPE SRpacket IS STD_LOGIC_VECTOR(63 DOWNTO 0);
 		VARIABLE ShiftRegister : SRpacket;
-		VARIABLE Shifted : NATURAL RANGE 0 TO 64; -- number of shifted bits
-		-- Initialization packets (see specification tables 2-10) ordered
-		-- with a bit of trial and error until I got a reliable initialization
-		-- in multiple reflashes
+		VARIABLE Shifted : NATURAL RANGE 0 TO 63; -- number of shifted bits
+		-- Initialization packets (see specification tables 2-10) were set
+		-- to ensure a reliable initialization in repeated board reflashes
 		TYPE InitPackets IS ARRAY (0 TO 4) OF SRpacket;
 		CONSTANT InitPacket : InitPackets := (
 			0 => x"-F-1-F-1-F-1-F-1", -- display test: enabled
@@ -97,11 +96,8 @@ BEGIN
 			4 => x"-B-7-B-7-B-7-B-7"  -- scan-limit: max, allow all LEDs
 		);
 		VARIABLE InitStage : NATURAL RANGE 0 TO InitPacket'length := 0;
-		-- Physical LED rows map to "digits" per table 2. The module is assumed
-		-- to be read with pin inputs on the left, so physical rows are in
-		-- reverse order which translates to RowHexCode = 8 - Row.
-		VARIABLE Row : NATURAL RANGE 0 TO 8;
-		VARIABLE RowHexCode : STD_LOGIC_VECTOR(3 DOWNTO 0);
+		VARIABLE Row : NATURAL RANGE 0 TO 7; -- physical LED row on all matrices
+		VARIABLE RowAddress : STD_LOGIC_VECTOR(7 DOWNTO 0); -- D15-D8 on Table 2
 	BEGIN
 		IF RISING_EDGE(CLK1MHz) THEN
 			IF Reset = '1' THEN
@@ -122,43 +118,45 @@ BEGIN
 					ShiftRegister := InitPacket(InitStage);
 					InitStage := InitStage + 1;
 				ELSE
-					IF Row = 8 THEN
+					-- Physical rows map to "digits" per Table 2. The module
+					-- is to be read with pin inputs on the left, so physical
+					-- rows are in reverse order (RowAddress = 8 - Row).
+					RowAddress := STD_LOGIC_VECTOR(TO_UNSIGNED(8-Row,8));
+					-- Following the row address, Matrix(Row) corresponds to
+					-- the LEDs that will be turned on according to Table 6.
+					-- Reverse_vector is used for the same reason as above.
+					ShiftRegister :=
+						RowAddress & reverse_vector(Matrix4(Row)) &
+						RowAddress & reverse_vector(Matrix3(Row)) &
+						RowAddress & reverse_vector(Matrix2(Row)) &
+						RowAddress & reverse_vector(Matrix1(Row));
+					IF Row < 7 THEN
+						Row := Row + 1;
+					ELSE
 						Row := 0;
 					END IF;
-					RowHexCode := STD_LOGIC_VECTOR(TO_UNSIGNED(8-Row,4));
-					-- the MSB will be shifted out first into the 4th matrix
-					ShiftRegister(63 DOWNTO 56) := x"-" & RowHexCode;
-					ShiftRegister(55 DOWNTO 48) := reverse_vector(Matrix4(Row));
-					ShiftRegister(47 DOWNTO 40) := x"-" & RowHexCode;
-					ShiftRegister(39 DOWNTO 32) := reverse_vector(Matrix3(Row));
-					ShiftRegister(31 DOWNTO 24) := x"-" & RowHexCode;
-					ShiftRegister(23 DOWNTO 16) := reverse_vector(Matrix2(Row));
-					ShiftRegister(15 DOWNTO 8)	:= x"-" & RowHexCode;
-					ShiftRegister(7 DOWNTO 0)   := reverse_vector(Matrix1(Row));
-					Row := Row + 1;
 				END IF;
 				CS <= '0'; -- proceed to the Shifting state
 			-- ----------------------------------------------------------------
 			-- Shifting state
 			-- ----------------------------------------------------------------
 			ELSE
-				IF Shifted < 64 THEN -- more bits to shift
-					IF CLK = '1' THEN
-						-- shift the new bit before the next rising edge
-						DIN <= ShiftRegister(63);
-						CLK <= '0';
-					ELSE
-						-- increase the counter in the low phase, otherwise
-						-- there won't be a rising edge for the last bit
-						ShiftRegister := ShiftRegister(62 DOWNTO 0) & '0';
+				IF CLK = '1' THEN
+					CLK <= '0';
+					-- shift the new bit before the next rising edge
+					DIN <= ShiftRegister(63);
+					ShiftRegister(63 DOWNTO 1) := ShiftRegister(62 DOWNTO 0);
+				ELSE
+					CLK <= '1'; -- rising edge, send DIN to register
+					IF Shifted < 63 THEN
 						Shifted := Shifted + 1;
-						CLK <= '1'; -- rising edge, send DIN to register
+					ELSE
+						-- All bits have been shifted, latch them and return
+						-- to the preparation state. Also, tCSHmin = 0, so
+						-- both CLK & CS can be raised at the same time.
+						CS <= '1';
+						Shifted := 0;
 					END IF;
-				ELSE 
-					-- All bits have been shifted; latch them to the MAX7219
-					-- shift registers, and return to the preparation state
-					CS <= '1';
-					Shifted := 0;
 				END IF;
 			END IF;
 		END IF;
@@ -182,7 +180,7 @@ USE ieee.std_logic_1164.ALL, work.board.ALL, work.support.ALL, work.firmware.ALL
 ENTITY Interface IS PORT (
 	BoardCLK    : IN STD_LOGIC;  -- board clock (frequency in Board.vhd)
 	ResetButton : IN STD_LOGIC;  -- resets PC, SP, & uploads the firmware
-	SetButton   : IN STD_LOGIC;  -- raises one clock edge and pauses
+	PauseButton : IN STD_LOGIC;  -- raises one clock edge and pauses
 	Right       : IN STD_LOGIC;  -- increases CLK frequency up to 1 MHz
 	Left        : IN STD_LOGIC;  -- decreases CLK frequency down to 0 (pause)
 	DIPinput    : IN WORD;       -- 8-pin DIP switch input
@@ -192,7 +190,7 @@ ENTITY Interface IS PORT (
 ); END;
 ARCHITECTURE a1 OF Interface IS
 	SIGNAL Reset  : STD_LOGIC := '0'; -- debounced ResetButton
-	SIGNAL Pause    : STD_LOGIC := '0'; -- debounced SetButton
+	SIGNAL Pause    : STD_LOGIC := '0'; -- debounced PauseButton
 	SIGNAL GenCLK : STD_LOGIC_VECTOR(7 DOWNTO 0); -- see ClockGenerator
 	SIGNAL Speed  : NATURAL RANGE 0 TO 6 := InitSpeed; -- GenCLK index
 	ALIAS CLK1MHz : STD_LOGIC IS GenCLK(7); -- for board interface only
@@ -280,12 +278,12 @@ BEGIN
 			ELSIF PauseRelease < MinPause THEN
 				Pause <= '1';
 				PauseRelease := PauseRelease + 1;
-			ELSIF SetButton THEN
+			ELSIF PauseButton THEN
 				PauseRelease := 0;
 			ELSE
 				Pause <= '0';
 			END IF;
-			IF ResetButton OR SetButton THEN
+			IF ResetButton OR PauseButton THEN
 				-- don't allow combined buttons
 			ELSIF JoystickPress < Idle THEN
 				JoystickPress := JoystickPress + 1;
