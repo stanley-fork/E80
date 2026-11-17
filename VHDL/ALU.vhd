@@ -19,7 +19,7 @@ ARCHITECTURE a1 OF ALU IS
 	ALIAS B IS ALUinB;
 	-- ALU Decoder output
 	SIGNAL isADD, isSUB, isROR, isAND, isOR, isXOR, isRSHIFT, isCMP, isLSHIFT,
-	       isBIT, isDCR, isINR, CZSV, ZS : STD_LOGIC;
+	       isBIT, isDCR, isINR, updCV, updZS : STD_LOGIC;
 	-- Adder input / output
 	SIGNAL AdderB : WORD; -- B input or 1 for INR/DCR
 	SIGNAL Sum : WORD;
@@ -45,8 +45,8 @@ BEGIN
 	isRSHIFT <= match(ALUop,"1101"); --| A >> 1, C ← A(0), V ← S flip | **** |
 	isDCR    <= match(ALUop,"1110"); --| A - 1 (PUSH, CALL)           |      |
 	isINR    <= match(ALUop,"1111"); --| A + 1 (POP, RETURN)          |      |
-	CZSV     <= isADD OR isSUB OR isRSHIFT OR isLSHIFT;
-	ZS       <= isINR NOR isDCR;
+	updCV    <= isADD OR isSUB OR isRSHIFT OR isLSHIFT; -- update C & V flags
+	updZS    <= isINR NOR isDCR;                        -- update Z & S flags
 	-------------------------------------------------------------------
 	-- Adder / Subtractor
 	-------------------------------------------------------------------
@@ -94,10 +94,10 @@ BEGIN
 	-------------------------------------------------------------------
 	-- Final output
 	-------------------------------------------------------------------
-	FlagsOut(7) <= C WHEN CZSV ELSE FlagsIn(7);
-	FlagsOut(6) <= Z WHEN ZS ELSE FlagsIn(6);
-	FlagsOut(5) <= S WHEN ZS ELSE FlagsIn(5);
-	FlagsOut(4) <= V WHEN CZSV ELSE FlagsIn(4);
+	FlagsOut(7) <= C WHEN updCV ELSE FlagsIn(7);
+	FlagsOut(6) <= Z WHEN updZS ELSE FlagsIn(6);
+	FlagsOut(5) <= S WHEN updZS ELSE FlagsIn(5);
+	FlagsOut(4) <= V WHEN updCV ELSE FlagsIn(4);
 	FlagsOut(3 DOWNTO 0) <= FlagsIn(3 DOWNTO 0);
 	ALUout <= Result WHEN isCMP NOR isBIT ELSE A;
 END;
