@@ -97,7 +97,7 @@ Section "Portable requirements" SecCore
 	WriteRegStr HKCU "${REG_UNINSTALL}" "InstallLocation" "$INSTDIR"
 	WriteRegStr HKCU "${REG_UNINSTALL}" "DisplayIcon" "$INSTDIR\e80icon.ico"
 	WriteRegStr HKCU "${REG_UNINSTALL}" "Publisher" "Panos Stokas"
-	WriteRegStr HKCU "${REG_UNINSTALL}" "DisplayVersion" "4.1"
+	WriteRegStr HKCU "${REG_UNINSTALL}" "DisplayVersion" "4.2"
 	WriteRegDWORD HKCU "${REG_UNINSTALL}" "NoModify" 1
 	WriteRegDWORD HKCU "${REG_UNINSTALL}" "NoRepair" 1
 	; Show the total size of the installed files in Programs and Features (or whatever name Microsoft chooses for the installed programs list)
